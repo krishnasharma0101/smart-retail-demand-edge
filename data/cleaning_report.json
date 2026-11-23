@@ -1,0 +1,28 @@
+{
+  "store": "CA_1",
+  "store_products": 3049,
+  "eligible_products": 213,
+  "rows_before": 60662,
+  "missing_price_rows": 805,
+  "negative_units": 0,
+  "store_closed_days": [
+    "2013-12-25",
+    "2014-12-25",
+    "2015-12-25"
+  ],
+  "capped_outliers": 50,
+  "products": 49,
+  "days": 1238,
+  "date_min": "2013-01-01",
+  "date_max": "2016-05-22",
+  "daily_rows": 60662,
+  "departments": [
+    "FOODS_1",
+    "FOODS_2",
+    "FOODS_3",
+    "HOBBIES_1",
+    "HOBBIES_2",
+    "HOUSEHOLD_1",
+    "HOUSEHOLD_2"
+  ]
+}

@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart Retail Edge · Demand & Replenishment</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/vendor/chart.umd.min.js"></script>
+</head>
+<body>
+<aside class="side">
+  <div class="brand"><div class="mark">SR</div><div><b>Smart Retail Edge</b><small id="storeName">store-001 · CA_1</small></div></div>
+  <nav>
+    <a href="#overview" data-view="overview" class="active">Overview</a>
+    <a href="#inventory" data-view="inventory">Inventory</a>
+    <a href="#predict" data-view="predict">Predict</a>
+    <a href="#model" data-view="model">Model</a>
+    <a href="#edge" data-view="edge">Edge &amp; MQTT</a>
+  </nav>
+  <div class="side-foot">
+    <div class="kv"><span>Model</span><b id="sfModel">–</b></div>
+    <div class="kv"><span>Broker</span><b id="sfBroker">–</b></div>
+    <div class="kv"><span>Host</span><b id="sfHost">–</b></div>
+    <a href="/docs" target="_blank" class="doclink">REST API docs ↗</a>
+  </div>
+</aside>
+
+<main>
+  <header class="top">
+    <div>
+      <h1 id="viewTitle">Overview</h1>
+      <div class="sub">Store day <b id="simDate">–</b> · day <span id="dayIdx">0</span> of replay · <span id="simInfo">waiting for store feed</span></div>
+    </div>
+    <div class="top-right">
+      <span class="pill" id="pillWs"><i></i>Dashboard link</span>
+      <span class="pill" id="pillMqtt"><i></i>MQTT</span>
+      <span class="pill" id="pillRate">0 msg/s</span>
+      <label class="switch" title="Edge places purchase orders automatically for HIGH/CRITICAL items">
+        <input type="checkbox" id="autoReorder"><span></span>Auto-reorder
+      </label>
+    </div>
+  </header>
+
+  <!-- ============ OVERVIEW ============ -->
+  <section class="view active" id="view-overview">
+    <div class="kpis">
+      <div class="kpi"><label>Forecast demand · 7 days</label><div class="v" id="kDemand">–</div><div class="s" id="kRevenue">–</div></div>
+      <div class="kpi"><label>Needs replenishment</label><div class="v"><span id="kCrit" class="c-crit">0</span> <small>critical</small> · <span id="kHigh" class="c-high">0</span> <small>high</small></div><div class="s"><span id="kMed">0</span> medium · <span id="kOk">0</span> healthy</div></div>
+      <div class="kpi"><label>Revenue at risk (7 d)</label><div class="v" id="kRisk">–</div><div class="s">forecast sales of HIGH/CRITICAL items</div></div>
+      <div class="kpi"><label>Open purchase orders</label><div class="v" id="kPOs">0</div><div class="s"><span id="kOnOrder">0</span> units in transit · lead <span id="kLead">3</span> d</div></div>
+      <div class="kpi"><label>Live forecast error (WAPE)</label><div class="v" id="kWape">–</div><div class="s" id="kWapeS">settles 7 days after each forecast</div></div>
+      <div class="kpi"><label>Edge inference · batch</label><div class="v" id="kLat">–</div><div class="s" id="kLatS">p95 –</div></div>
+    </div>
+
+    <div class="grid g-main">
+      <div class="panel">
+        <div class="ph"><h3>Demand: actual vs forecast</h3>
+          <div class="ph-r"><select id="skuSelect"></select><span class="muted" id="skuMeta"></span></div></div>
+        <div class="chart-wrap tall"><canvas id="skuChart"></canvas></div>
+        <div class="legend-note">Bars: units sold per day (POS over MQTT). Line: forecast daily rate made at each day close (7-day forecast ÷ 7). Band: 10–90% spread of the 200 trees.</div>
+      </div>
+      <div class="panel">
+        <div class="ph"><h3>Replenishment queue</h3><span class="muted" id="queueCount"></span></div>
+        <div class="queue" id="queue"></div>
+      </div>
+    </div>
+
+    <div class="grid g-bottom">
+      <div class="panel">
+        <div class="ph"><h3>Stock vs forecast · most urgent</h3><a href="#inventory" class="link" data-goto="inventory">All products →</a></div>
+        <table class="tbl" id="miniTable"><thead><tr><th>SKU</th><th class="r">On hand</th><th class="r">Forecast 7 d</th><th>Cover</th><th>Status</th><th class="r">Order</th></tr></thead><tbody></tbody></table>
+      </div>
+      <div class="panel">
+        <div class="ph"><h3>Live MQTT traffic</h3><span class="muted" id="feedRate"></span></div>
+        <div class="feed" id="feedMini"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ INVENTORY ============ -->
+  <section class="view" id="view-inventory">
+    <div class="toolbar">
+      <div class="chips" id="sevChips">
+        <button data-sev="ALL" class="on">All</button><button data-sev="CRITICAL">Critical</button><button data-sev="HIGH">High</button><button data-sev="MEDIUM">Medium</button><button data-sev="OK">OK</button><button data-sev="OVERSTOCK">Overstock</button>
+      </div>
+      <select id="catFilter"><option value="">All categories</option><option>FOODS</option><option>HOBBIES</option><option>HOUSEHOLD</option></select>
+      <input id="search" placeholder="Search SKU…">
+      <span class="muted" id="invCount"></span>
+    </div>
+    <div class="panel flush">
+      <table class="tbl big" id="invTable"><thead><tr>
+        <th data-k="sku">SKU</th><th data-k="dept">Department</th><th class="r" data-k="price">Price</th><th class="r" data-k="on_hand">On hand</th><th class="r" data-k="on_order">On order</th><th>Sold · last 28 d</th><th class="r" data-k="last_7">Sold 7 d</th><th class="r" data-k="pred">Forecast 7 d <span style="font-weight:400">(p10–p90)</span></th><th data-k="cover">Days of cover</th><th class="r" data-k="rop">Reorder pt</th><th data-k="sev">Status</th><th class="r">Suggested</th><th></th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+  </section>
+
+  <!-- ============ PREDICT ============ -->
+  <section class="view" id="view-predict">
+    <div class="grid g-predict">
+      <div class="panel">
+        <div class="ph"><h3>Request a forecast</h3>
+          <div class="seg" id="modeSeg"><button data-mode="sku" class="on">Existing product</button><button data-mode="manual">New / manual product</button></div></div>
+        <form id="predForm" autocomplete="off" novalidate>
+          <div class="mode-sku">
+            <label>Product (SKU)<select name="sku" id="pSku"></select></label>
+            <p class="hint">Uses the sales history the edge node has collected over MQTT. Override any field below to run a what-if.</p>
+          </div>
+          <div class="mode-manual hidden">
+            <div class="row2">
+              <label>Category<select name="category" id="pCat"><option>FOODS</option><option>HOBBIES</option><option>HOUSEHOLD</option></select></label>
+              <label>Department<select name="department" id="pDept"></select></label>
+            </div>
+            <div class="row3">
+              <label>Units sold yesterday<input name="last_day" type="number" min="0" step="1" value="38"></label>
+              <label>Units sold · last 7 days<input name="last_7_days" type="number" min="0" step="1" value="260"></label>
+              <label>Units sold · last 28 days<input name="last_28_days" type="number" min="0" step="1" value="980"></label>
+            </div>
+          </div>
+          <div class="row3">
+            <label>Unit price ($)<input name="unit_price" type="number" min="0.01" step="0.01" placeholder="current"></label>
+            <label>Regular price ($)<input name="ref_price" type="number" min="0.01" step="0.01" placeholder="28-day avg"></label>
+            <label>Forecast from date<input name="date" type="date"></label>
+          </div>
+          <div class="row3">
+            <label>Current stock (units)<input name="current_stock" type="number" min="0" step="1" placeholder="shelf sensor"></label>
+            <label>Already on order<input name="on_order" type="number" min="0" step="1" value="0"></label>
+            <label>Supplier lead time (days)<input name="lead_time_days" type="number" min="0" max="60" step="1" value="3"></label>
+          </div>
+          <div class="form-err" id="formErr"></div>
+          <div class="actions"><button type="submit" class="btn primary" id="predBtn">Predict demand</button><span class="muted" id="predStatus"></span></div>
+        </form>
+      </div>
+      <div class="panel" id="predResult">
+        <div class="ph"><h3>Result</h3><span class="muted" id="resMeta"></span></div>
+        <div class="empty" id="resEmpty">Submit the form to run the Random Forest on this edge node. The request goes over HTTP to <code>POST /predict</code>; the result is also broadcast to every open dashboard.</div>
+        <div id="resBody" class="hidden">
+          <div class="res-head">
+            <div><label>Forecast demand · next 7 days</label><div class="bignum" id="rPred">–</div><div class="muted" id="rRate"></div></div>
+            <div class="interval"><label>80% interval (tree spread)</label><div class="ibar"><div class="ifill" id="rBand"></div><div class="imark" id="rMark"></div></div><div class="irow"><span id="rLo"></span><span id="rHi"></span></div></div>
+          </div>
+          <div class="rec" id="rRec"></div>
+          <h4>Model inputs (engineered features)</h4><div class="feats" id="rFeat"></div>
+          <div class="grid g-2" style="margin-top:4px">
+            <div><h4>Same call from the command line</h4><pre class="code" id="rCurl"></pre></div>
+            <div><h4>Recent predictions (all dashboards)</h4><table class="tbl" id="rHist"><tbody></tbody></table></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ MODEL ============ -->
+  <section class="view" id="view-model">
+    <div class="grid g-3">
+      <div class="panel span2">
+        <div class="ph"><h3>Hold-out evaluation</h3><span class="muted" id="splitInfo"></span></div>
+        <table class="tbl" id="metricsTable"><thead><tr><th>Model</th><th class="r">MAE</th><th class="r">RMSE</th><th class="r">R²</th><th class="r">WAPE</th><th class="r">vs. 28-day avg (RMSE)</th></tr></thead><tbody></tbody></table>
+        <div class="chart-wrap"><canvas id="scatter"></canvas></div>
+      </div>
+      <div class="panel">
+        <div class="ph"><h3>Feature importance</h3><span class="muted">impurity-based</span></div>
+        <div class="chart-wrap tall2"><canvas id="fiChart"></canvas></div>
+      </div>
+    </div>
+    <div class="grid g-3">
+      <div class="panel"><div class="ph"><h3>Error by department</h3></div><table class="tbl" id="deptTable"><thead><tr><th>Dept</th><th class="r">MAE</th><th class="r">WAPE</th><th class="r">R²</th><th class="r">n</th></tr></thead><tbody></tbody></table></div>
+      <div class="panel"><div class="ph"><h3>Model card</h3></div><table class="tbl kvt" id="cardTable"></table></div>
+      <div class="panel"><div class="ph"><h3>Data cleaning audit</h3></div><table class="tbl kvt" id="cleanTable"></table></div>
+    </div>
+  </section>
+
+  <!-- ============ EDGE ============ -->
+  <section class="view" id="view-edge">
+    <div class="kpis k4">
+      <div class="kpi"><label>Inference p50 / p95</label><div class="v" id="eLat">–</div><div class="s">per 49-SKU batch, single CPU core</div></div>
+      <div class="kpi"><label>MQTT in / out</label><div class="v" id="eMsgs">–</div><div class="s" id="eRej">0 rejected</div></div>
+      <div class="kpi"><label>Process memory</label><div class="v" id="eMem">–</div><div class="s" id="eUp">uptime –</div></div>
+      <div class="kpi"><label>Lost sales (stock-outs)</label><div class="v" id="eLost">–</div><div class="s">units the shelf could not serve</div></div>
+    </div>
+    <div class="grid g-2">
+      <div class="panel"><div class="ph"><h3>Message throughput</h3><span class="muted">msg/s, last 3 min</span></div><div class="chart-wrap"><canvas id="rateChart"></canvas></div></div>
+      <div class="panel"><div class="ph"><h3>Inference latency</h3><span class="muted">last 120 calls, ms</span></div><div class="chart-wrap"><canvas id="latChart"></canvas></div></div>
+    </div>
+    <div class="grid g-edge">
+      <div class="panel"><div class="ph"><h3>Topic map</h3></div>
+        <table class="tbl topics"><thead><tr><th>Topic</th><th>Direction</th><th>QoS</th><th>Purpose</th></tr></thead><tbody id="topicMap"></tbody></table></div>
+      <div class="panel"><div class="ph"><h3>Message log</h3><div class="ph-r"><input id="feedFilter" placeholder="filter topic…"><button class="btn sm" id="feedPause">Pause</button></div></div><div class="feed tall" id="feedFull"></div></div>
+    </div>
+  </section>
+</main>
+<div id="toast"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

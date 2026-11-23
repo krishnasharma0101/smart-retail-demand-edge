@@ -1,0 +1,28 @@
+# Edge stack: Mosquitto broker + inference service + store simulator.
+# Runs on x86 or ARM64 (Raspberry Pi 4/5, Jetson) - all images are multi-arch.
+services:
+  broker:
+    image: eclipse-mosquitto:2
+    ports: ["1883:1883", "9001:9001"]
+    volumes: ["./deploy/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro"]
+    restart: unless-stopped
+  edge:
+    build: .
+    environment:
+      MQTT_HOST: broker
+      STORE_ID: store-001
+      LEAD_TIME_DAYS: "3"
+    ports: ["8000:8000"]
+    depends_on: [broker]
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: {cpus: "1.0", memory: 512M}    # what a Pi-class device can spare
+  simulator:
+    build: .
+    command: ["python", "-m", "retail_edge.simulator", "--speed", "4"]
+    environment:
+      MQTT_HOST: broker
+      STORE_ID: store-001
+    depends_on: [edge]
+    restart: "no"
